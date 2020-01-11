@@ -1,4 +1,4 @@
-module SNetwork
+tracesmodule SNetwork
 
 using Distributions
 export Network, update!, update_weights!, run!, train!
@@ -28,7 +28,7 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
 
     #declare the space for the network's variables/objects
     spikes = Dict{Int, Array{Bool,2}}()
-    traces = Dict{Int, Array{Bool,3}}()
+    traces = Dict{Int, Array{Bool,2}}()
     potentials = Dict{Int, Array{Float64,2}}()
     connections = Dict{Tuple{Int,Int}, Array{Float64,2}}()
 
@@ -50,19 +50,21 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
         connections[(src, dst)] = rand(rand_dist, net_shape[src], net_shape[dst])
     end
 
-    return Network(spikes, potentials, connections,
+    return Network(spikes, traces, potentials, connections,
         net_shape, input_rates, n_layers,
         ones(n_layers), 0.0, memory, 0, 0.0005)
 end
 
 function update!(net::Network)
     spikes = net.spikes
-    memory = net.memory
+    traces = net.traces
     potentials = net.potentials
     connections = net.connections
 
+    memtime() = mod1(net.step, net.memory)
     #calculate random spiking at the inputs
     spikes[1][:,1] = rand(net.net_shape[1]) .< net.input_rates
+    traces[1][:,memtime()] = spikes[1][:,1]
 
     for i in 2:net.n_layers
         src = i - 1
@@ -75,12 +77,10 @@ function update!(net::Network)
         spikes[dst] .= potentials[dst] .> net.thresholds[dst]
         net.step += 1
         #update the synaptic trace
-        ind = mod1(net.step, net.memory)
-        memory[:,ind] = spikes[dst]
+        traces[i][:,memtime()] = spikes[dst]
         #reset potential of spiking neurons to zero
         potentials[dst][spikes[dst]] .= net.reset
     end
-
 end
 
 function update_weights!(net::Network, desired::Array{<:Real,1})
@@ -89,15 +89,15 @@ function update_weights!(net::Network, desired::Array{<:Real,1})
     end
 
     spikes = net.spikes
-    memory = net.memory
+    traces = net.traces
     potentials = net.potentials
     connections = net.connections
     lr = net.learn_rate
 
-    spike_in_memory(x::Int) = (sum(memory[3], dims=2) .> 1)
+    spike_in_traces(x::Int) = (sum(traces[x], dims=2) .> 1)
 
-    error_output = desired .- spike_in_memory(3)
-    error_hidden = connections[(2,3)] * error_output .* spike_in_memory(2)
+    error_output = desired .- spike_in_traces(3)
+    error_hidden = connections[(2,3)] * error_output .* spike_in_traces(2)
 
 
     deltas_23 = spikes[2] * error_output' .* lr
