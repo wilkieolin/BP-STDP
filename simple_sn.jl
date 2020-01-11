@@ -1,7 +1,7 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!
+export Network, update!, update_weights!, run!, train!
 
     mutable struct Network
         spikes::Dict{Int, Array{Bool,2}}
@@ -28,7 +28,7 @@ export Network, update!, update_weights!, run!
         potentials = Dict{Int, Array{Float64,2}}()
         connections = Dict{Tuple{Int,Int}, Array{Float64,2}}()
 
-        rand_dist = Normal(0,1)
+        rand_dist = Normal(0.1,1)
 
         #setup the input layer
         n_inputs = net_shape[1]
@@ -86,8 +86,8 @@ export Network, update!, update_weights!, run!
         error_hidden = connections[(2,3)] * error_output .* spikes[2]
 
 
-        deltas_23 = spikes[3] * error_output' .* lr
-        deltas_12 = spikes[2] * error_hidden' .* lr
+        deltas_23 = spikes[2] * error_output' .* lr
+        deltas_12 = spikes[1] * error_hidden' .* lr
 
         connections[(2,3)] .+= deltas_23
         connections[(1,2)] .+= deltas_12
@@ -101,30 +101,42 @@ export Network, update!, update_weights!, run!
         connections = net.connections
         n_layers = net.n_layers
 
-        history = zeros(time, length(spikes[n_layers]))
-        output = falses(time, length(spikes[n_layers]))
+        history = Dict{Int, Array{<:Real,2}}()
+        output = Dict{Int, Array{Bool,2}}()
+
+        for i in 1:n_layers
+            history[i] = zeros(time, net.net_shape[i])
+            output[i] = falses(time, net.net_shape[i])
+        end
 
         for i in 1:time
             update!(net)
-            history[i,:] = potentials[n_layers]
-            output[i,:] = spikes[n_layers]
+            for j in 1:n_layers
+                history[j][i,:] = potentials[j]
+                output[j][i,:] = spikes[j]
+            end
         end
 
         return (history, output)
     end
 
     function train!(net::Network, time::Int, desired::Array{<:Real,1})
-        potentials = zeros(time,length(spikes[net.n_layers]))
-        output = falses(time,length(spikes[net.n_layers]))
+        spikes = net.spikes
+        potentials = net.potentials
+        connections = net.connections
+        n_layers = net.n_layers
+
+        history = zeros(time, length(spikes[n_layers]))
+        output = falses(time, length(spikes[n_layers]))
 
         for i in 1:time
             update!(net)
             update_weights!(net, desired)
-            potentials[i,:] = layers[net.n_layers]
-            output[i,:] = spikes[net.n_layers]
+            history[i,:] = potentials[n_layers]
+            output[i,:] = spikes[n_layers]
         end
 
-        return (potentials, output)
+        return (history, output)
     end
 
 
