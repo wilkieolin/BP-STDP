@@ -28,7 +28,7 @@ export Network, update!, update_weights!, run!, train!
         potentials = Dict{Int, Array{Float64,2}}()
         connections = Dict{Tuple{Int,Int}, Array{Float64,2}}()
 
-        rand_dist = Normal(0.1,1)
+        rand_dist = Normal(0.3,0.3)
 
         #setup the input layer
         n_inputs = net_shape[1]
@@ -126,17 +126,31 @@ export Network, update!, update_weights!, run!, train!
         connections = net.connections
         n_layers = net.n_layers
 
-        history = zeros(time, length(spikes[n_layers]))
-        output = falses(time, length(spikes[n_layers]))
+        history = Dict{Int, Array{<:Real,2}}()
+        output = Dict{Int, Array{Bool,2}}()
+        weights = Dict{Int, Array{<:Real, 3}}()
+
+        for i in 1:n_layers
+            history[i] = zeros(time, net.net_shape[i])
+            output[i] = falses(time, net.net_shape[i])
+            if i != n_layers
+                weights[i] = zeros(time, net.net_shape[i], net.net_shape[i+1])
+            end
+        end
 
         for i in 1:time
             update!(net)
             update_weights!(net, desired)
-            history[i,:] = potentials[n_layers]
-            output[i,:] = spikes[n_layers]
+            for j in 1:n_layers
+                history[j][i,:] = potentials[j]
+                output[j][i,:] = spikes[j]
+                if i != n_layers
+                    weights[i] = connections[i, i+1]
+                end
+            end
         end
 
-        return (history, output)
+        return (history, output, weights)
     end
 
 
