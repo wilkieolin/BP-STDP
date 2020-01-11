@@ -1,4 +1,4 @@
-tracesmodule SNetwork
+module SNetwork
 
 using Distributions
 export Network, update!, update_weights!, run!, train!
