@@ -1,7 +1,7 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!, train!
+export Network, update!, update_weights!, run!, train!, epoch, test, train_loop, MSE
 
 mutable struct Network
     spikes::Dict{Int, Array{Bool,2}}
@@ -94,14 +94,16 @@ function update_weights!(net::Network, desired::Array{<:Real,1})
     connections = net.connections
     lr = net.learn_rate
 
-    spike_in_traces(x::Int) = (sum(traces[x], dims=2) .> 1)
-
-    error_output = desired .- spike_in_traces(3)
-    error_hidden = connections[(2,3)] * error_output .* spike_in_traces(2)
+    spikes_in_traces(x::Int) = sum(traces[x], dims=2)
+    active_in_traces(x::Int) = (spikes_in_traces(x) .> 1)
 
 
-    deltas_23 = spikes[2] * error_output' .* lr
-    deltas_12 = spikes[1] * error_hidden' .* lr
+    error_output = desired .- active_in_traces(3)
+    error_hidden = connections[(2,3)] * error_output .* active_in_traces(2)
+
+
+    deltas_23 = spikes_in_traces(2) * error_output' .* lr
+    deltas_12 = spikes_in_traces(1) * error_hidden' .* lr
 
     connections[(2,3)] .+= deltas_23
     connections[(1,2)] .+= deltas_12
@@ -213,6 +215,20 @@ function test(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     end
 
     return rates
+end
+
+MSE(x,y) = mean((y - x).^2)
+
+function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
+    losses = zeros(cycles)
+
+    for i in 1:cycles
+        epoch(net, x, y, time)
+        yhat = test(net, x, y, time)
+        losses[i] = MSE(yhat, y)
+    end
+
+    return losses
 end
 
 end
