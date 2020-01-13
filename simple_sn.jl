@@ -74,10 +74,10 @@ function update!(net::Network)
         currents = transpose(transpose(spikes[src]) * connections[(src, dst)])
         potentials[dst] .+= currents
         #did this cause spikes?
-        spikes[dst] .= potentials[dst] .> net.thresholds[dst]
+        spikes[dst] .= potentials[dst] .>= net.thresholds[dst]
         net.step += 1
         #update the synaptic trace
-        traces[i][:,memtime()] = spikes[dst]
+        traces[dst][:,memtime()] = spikes[dst]
         #reset potential of spiking neurons to zero
         potentials[dst][spikes[dst]] .= net.reset
     end
@@ -191,16 +191,11 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
 
 end
 
-function test(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
+function test(net::Network, x::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
-    (n_y, s_y) = size(y)
 
     if s_x != net.net_shape[1]
         error("Second dimension of examples must match input dimension of network")
-    elseif n_x != n_y
-        error("Each training example (x) must have a target firing rate (y)")
-    elseif s_x != net.net_shape[net.n_layers]
-        error("Second dimension of target firing rate must match output dimension of network")
     end
 
     time_per_example = floor(Int, time/n_x)
@@ -224,7 +219,7 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
 
     for i in 1:cycles
         epoch(net, x, y, time)
-        yhat = test(net, x, y, time)
+        yhat = test(net, x, time)
         losses[i] = MSE(yhat, y)
     end
 
