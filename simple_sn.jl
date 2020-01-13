@@ -1,7 +1,7 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!, train!, epoch, test, train_loop, MSE
+export Network, update!, update_weights!, run!, train!, epoch, test, full_test, train_loop, MSE
 
 mutable struct Network
     spikes::Dict{Int, Array{Bool,2}}
@@ -169,6 +169,16 @@ function train!(net::Network, time::Int, desired::Array{<:Real,1})
     return (history, output, weights)
 end
 
+function reset!(net::Network)
+    potentials = net.potentials
+    n_layers = net.n_layers
+
+    #skip the
+    for i in 2:n_layers
+        potentials[i] .= 0
+    end
+end
+
 function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
@@ -191,6 +201,30 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
 
 end
 
+function full_test(net::Network, x::Array{<:Real,2}, time::Int)
+    (n_x, s_x) = size(x)
+
+    if s_x != net.net_shape[1]
+        error("Second dimension of examples must match input dimension of network")
+    end
+
+    time_per_example = floor(Int, time/n_x)
+    spikes = Array{Any,1}(undef,0)
+    voltages = Array{Any,1}(undef,0)
+
+    for i in 1:n_x
+        #see how the network responds to the example stimulus
+        net.input_rates = x[i,:]
+        reset!(net)
+        (v,s) = run!(net, time_per_example)
+        #get the output firing rate
+        append!(spikes, s)
+        append!(voltages, v)
+    end
+
+    return (spikes, voltages)
+end
+
 function test(net::Network, x::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
 
@@ -204,6 +238,7 @@ function test(net::Network, x::Array{<:Real,2}, time::Int)
     for i in 1:n_x
         #see how the network responds to the example stimulus
         net.input_rates = x[i,:]
+        reset!(net)
         (v,s) = run!(net, time_per_example)
         #get the output firing rate
         rates[i,:] = vec(sum(s[net.n_layers], dims=1) ./ time_per_example)
