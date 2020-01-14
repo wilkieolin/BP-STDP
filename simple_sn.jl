@@ -1,7 +1,21 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!, train!, reset!, epoch, test, full_test, set_input, train_loop, MSE
+export Network,
+    update!,
+    update_weights!,
+    run!,
+    train!,
+    reset!,
+    epoch,
+    test,
+    full_test,
+    set_input,
+    set_teacher,
+    train_loop,
+    MSE,
+    accuracy
+
 import Statistics.mean
 
 mutable struct Network
@@ -127,10 +141,15 @@ function update_weights!(net::Network)
     connections = net.connections
     lr = net.learn_rate
 
+    #only trigger if there's a spike in the teacher signal
+    if sum(spikes[4]) == 0
+        return (zeros(net.net_shape[3]), zeros(net.net_shape[2]))
+    end
+
     spikes_in_traces(x::Int) = sum(traces[x], dims=2)
     active_in_traces(x::Int) = (spikes_in_traces(x) .> 0)
 
-    error_output = active_in_traces(4) .- active_in_traces(3)
+    error_output = spikes[4] .- active_in_traces(3)
     error_hidden = connections[(2,3)] * error_output .* active_in_traces(2)
 
     deltas_23 = spikes_in_traces(2) * error_output' .* lr
@@ -296,6 +315,11 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, lossfn
     end
 
     return losses
+end
+
+function get_weights(net::Network)
+
+
 end
 
 end
