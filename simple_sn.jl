@@ -226,12 +226,12 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
         error("Second dimension of examples must match input dimension of network")
     elseif n_x != n_y
         error("Each training example (x) must have a target firing rate (y)")
-    elseif s_x != net.net_shape[net.n_layers]
+    elseif s_y != net.net_shape[end]
         error("Second dimension of target firing rate must match output dimension of network")
     end
 
     time_per_example = floor(Int, time/n_x)
-    error = zeros(Float64, n_x)
+    err = zeros(Float64, n_x)
     shuffle_inds = randperm(n_x)
 
     for i in 1:n_x
@@ -240,12 +240,10 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
         #set the teacher rate to the example
         set_teacher(net, y[shuffle_inds[i],:])
         #let the network learn with the update rule
-        start_i = (i-1) * time_per_example + 1
-        stop_i = (i) * time_per_example
-        error[i] = mapreduce(sum, +, train!(net, time_per_example)) / time_per_example
+        err[i] = mapreduce(sum, +, train!(net, time_per_example)) / time_per_example
     end
 
-    return error
+    return err
 end
 
 function full_test(net::Network, x::Array{<:Real,2}, time::Int)
@@ -300,8 +298,8 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
     mse = zeros(cycles)
 
     for i in 1:cycles
-        error = epoch(net, x, y, time)
-        mse[i] = mean(error .^ 2)
+        err = epoch(net, x, y, time)
+        mse[i] = mean(err .^ 2)
     end
 
     return mse
