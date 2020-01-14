@@ -240,7 +240,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
         #set the teacher rate to the example
         set_teacher(net, y[shuffle_inds[i],:])
         #let the network learn with the update rule
-        err[i] = mapreduce(sum, +, train!(net, time_per_example)) / time_per_example
+        err[i] = mapreduce(sum, +, train!(net, time)) / time
     end
 
     return err
@@ -276,15 +276,14 @@ function test(net::Network, x::Array{<:Real,2}, time::Int)
         error("Second dimension of examples must match input dimension of network")
     end
 
-    time_per_example = floor(Int, time/n_x)
     rates = zeros(n_x, net.net_shape[end])
 
     for i in 1:n_x
         #see how the network responds to the example stimulus
         set_input(net, x[i,:])
-        (v,s) = run!(net, time_per_example)
+        (v,s) = run!(net, time)
         #get the output firing rate
-        rates[i,:] = vec(sum(s[net.n_layers], dims=1) ./ time_per_example)
+        rates[i,:] = vec(sum(s[net.n_layers], dims=1) ./ time)
     end
 
     return rates
@@ -304,6 +303,24 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
 
     return mse
 end
+
+function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
+    (n_x, s_x) = size(x)
+    (n_y, s_y) = size(y)
+
+    if s_x != net.net_shape[1]
+        error("Second dimension of examples must match input dimension of network")
+    elseif n_x != n_y
+        error("Each training example (x) must have a target firing rate (y)")
+    elseif s_y != net.net_shape[end]
+        error("Second dimension of target firing rate must match output dimension of network")
+    end
+
+    rates = test(net, x, time)
+    return accuracy(rates, y)
+
+end
+
 
 function get_weights(net::Network)
     return deepcopy(net.connections)
