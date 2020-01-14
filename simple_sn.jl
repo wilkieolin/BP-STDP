@@ -14,7 +14,9 @@ export Network,
     set_teacher,
     train_loop,
     MSE,
-    accuracy
+    accuracy,
+    get_weights,
+    set_weights
 
 import Statistics.mean
 
@@ -194,30 +196,12 @@ function train!(net::Network, time::Int)
     connections = net.connections
     n_layers = net.n_layers
 
-    # history = Dict{Int, Array{<:Real,2}}()
-    # output = Dict{Int, Array{Bool,2}}()
-    # weights = Dict{Int, Array{<:Real, 3}}()
     output_error = zeros(Float64, time, net.net_shape[end])
     hidden_error = zeros(Float64, time, net.net_shape[end-1])
-
-    # for i in 1:n_layers
-    #     # history[i] = zeros(time, net.net_shape[i])
-    #     # output[i] = falses(time, net.net_shape[i])
-    #     # if i != n_layers
-    #     #     weights[i] = zeros(time, net.net_shape[i], net.net_shape[i+1])
-    #     # end
-    # end
 
     for i in 1:time
         update!(net)
         (output_error[i,:], hidden_error[i,:]) = update_weights!(net)
-        # for j in 1:n_layers
-        #     history[j][i,:] = potentials[j]
-        #     output[j][i,:] = spikes[j]
-        #     if j != n_layers
-        #         weights[j][i,:,:] = connections[(j, j+1)]
-        #     end
-        # end
     end
 
     return (output_error, hidden_error)
@@ -318,8 +302,27 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, lossfn
 end
 
 function get_weights(net::Network)
-
-
+    return deepcopy(net.connections)
 end
+
+function set_weights(net::Network, new_weights::Dict{Tuple{Int,Int}, Array{Float64,2}}())
+    connections = net.connections
+    n_layers = net.n_layers
+    net_shape = net.net_shape
+
+    for key in keys(new_weights)
+        if !(key in keys(connections))
+            error("Layer (", key, ") does not exist in target network.")
+        end
+        if size(new_weights[key]) != size(connections[key])
+            error("Size of weights for layer (", key, ") does not match target network.")
+        end
+    end
+
+    for key in keys(new_weights)
+        net.connections[key] = new_weights[key]
+    end
+end
+
 
 end
