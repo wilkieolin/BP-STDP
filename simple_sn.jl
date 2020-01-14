@@ -230,15 +230,20 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     end
 
     time_per_example = floor(Int, time/n_x)
+    error = zeros(Float64, n_x)
+
     for i in 1:n_x
         #set the input firing rate to the example
         set_input(net, x[i,:])
         #set the teacher rate to the example
         set_teacher(net, y[i,:])
         #let the network learn with the update rule
-        train!(net, time_per_example)
+        start_i = (i-1) * time_per_example + 1
+        stop_i = (i) * time_per_example
+        error[i] = mapreduce(sum, +, train!(net, time_per_example)) / time_per_example
     end
 
+    return error
 end
 
 function full_test(net::Network, x::Array{<:Real,2}, time::Int)
@@ -289,23 +294,22 @@ MSE(x,y) = mean((y - x).^2)
 
 accuracy(x,y) = mean(getindex.(findmax(x, dims=2)[2],2) .== getindex.(findmax(y, dims=2)[2],2))
 
-function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, lossfn::Function, time::Int, cycles::Int)
-    losses = zeros(cycles)
+function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
+    mse = zeros(cycles)
 
     for i in 1:cycles
-        epoch(net, x, y, time)
-        yhat = test(net, x, time)
-        losses[i] = lossfn(yhat, y)
+        error = epoch(net, x, y, time)
+        mse[i] = mean(error .^ 2)
     end
 
-    return losses
+    return mse
 end
 
 function get_weights(net::Network)
     return deepcopy(net.connections)
 end
 
-function set_weights(net::Network, new_weights::Dict{Tuple{Int,Int}, Array{Float64,2}}())
+function set_weights(net::Network, new_weights::Dict{Tuple{Int,Int}, Array{Float64,2}})
     connections = net.connections
     n_layers = net.n_layers
     net_shape = net.net_shape
