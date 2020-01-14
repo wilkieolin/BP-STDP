@@ -12,6 +12,7 @@ mutable struct Network
 
     net_shape::Array{Int,1}
     input_rates::Array{<:Real,1}
+    teacher_rates::Array{<:Real,1}
     n_layers::Int
 
     thresholds::Array{<:Real,1}
@@ -21,6 +22,7 @@ mutable struct Network
     steps_per_second::Int
     max_fr::Int
     learn_rate::Real
+    train_step::Int
 end
 
 function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
@@ -40,10 +42,12 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
     #setup the input layer
     n_inputs = net_shape[1]
     input_rates = zeros(Float64, n_inputs)
+    teacher_rates = zeros(Float64, n_inputs)
     potentials[1] = -1 .* ones(Float64, n_inputs, 1)
     spikes[1] = falses(n_inputs, 1)
     traces[1] = falses(n_inputs, memory)
 
+    #setup the hidden and output layers
     for dst in 2:n_layers
         src = dst - 1
         layer_size = net_shape[dst]
@@ -53,9 +57,12 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
         connections[(src, dst)] = rand(rand_dist, net_shape[src], net_shape[dst])
     end
 
+    #set up the teacher signal
+    spikes[n_layers + 1] = falses(net_shape[end], 1)
+
     return Network(spikes, traces, potentials, connections,
-        net_shape, input_rates, n_layers,
-        ones(n_layers), 0.0, memory, 0, 1000, 250, 0.0005)
+        net_shape, input_rates, teacher_rates, n_layers,
+        ones(n_layers), 0.0, memory, 0, 1000, 250, 0.0005, 0)
 end
 
 function update!(net::Network)
@@ -69,6 +76,7 @@ function update!(net::Network)
     spikes[1][:,1] = rand(net.net_shape[1]) .< net.input_rates
     traces[1][:,memtime()] .= spikes[1][:,1]
 
+    #calculate spiking in the hidden & output layers
     for i in 2:net.n_layers
         src = i - 1
         dst = i
@@ -84,6 +92,9 @@ function update!(net::Network)
         potentials[dst][spikes[dst]] .= net.reset
     end
 
+    #calculate the teacher signal for error propagation
+    spikes[net.n_layers + 1][:,1] = rand(net.net_shape[end]) .< net.teacher_rates
+
     net.step += 1
 end
 
@@ -91,12 +102,21 @@ function set_input(net::Network, input_rates::Array{<:Real,1})
     if size(input_rates,1) != net.net_shape[1]
         error("Shape of input rates must match network input layer.")
     end
-
+    #scale input weights with respect to the maximum firing rate
     net.input_rates = (input_rates * net.max_fr / net.steps_per_second)
     reset!(net)
 end
 
-function update_weights!(net::Network, desired::Array{<:Real,1})
+function set_teacher(net::Network, teacher_rates::Array{<:Real,1})
+    if size(teacher_rates,1) != net.net_shape[end]
+        error("Shape of teacher rates must match network output layer.")
+    end
+    #scale teacher spike rates with respect to the maximum firing rate
+    net.teacher_rates = (teacher_rates * net.max_fr / net.steps_per_second)
+    reset!(net)
+end
+
+function update_weights!(net::Network)
     if length(net.net_shape) != 3
         error("Algorithm currently only works for networks with 1 hidden layer (Input, Hidden, & Output)")
     end
@@ -108,9 +128,9 @@ function update_weights!(net::Network, desired::Array{<:Real,1})
     lr = net.learn_rate
 
     spikes_in_traces(x::Int) = sum(traces[x], dims=2)
-    active_in_traces(x::Int) = (spikes_in_traces(x) .> 1)
+    active_in_traces(x::Int) = (spikes_in_traces(x) .> 0)
 
-    error_output = desired .- active_in_traces(3)
+    error_output = active_in_traces(4) .- active_in_traces(3)
     error_hidden = connections[(2,3)] * error_output .* active_in_traces(2)
 
     deltas_23 = spikes_in_traces(2) * error_output' .* lr
@@ -119,7 +139,9 @@ function update_weights!(net::Network, desired::Array{<:Real,1})
     connections[(2,3)] .+= deltas_23
     connections[(1,2)] .+= deltas_12
 
-    return (deltas_12, deltas_23)
+    net.train_step += 1
+
+    return (error_output, error_hidden)
 end
 
 function run!(net::Network, time::Int)
@@ -147,37 +169,39 @@ function run!(net::Network, time::Int)
     return (history, output)
 end
 
-function train!(net::Network, time::Int, desired::Array{<:Real,1})
+function train!(net::Network, time::Int)
     spikes = net.spikes
     potentials = net.potentials
     connections = net.connections
     n_layers = net.n_layers
 
-    history = Dict{Int, Array{<:Real,2}}()
-    output = Dict{Int, Array{Bool,2}}()
-    weights = Dict{Int, Array{<:Real, 3}}()
+    # history = Dict{Int, Array{<:Real,2}}()
+    # output = Dict{Int, Array{Bool,2}}()
+    # weights = Dict{Int, Array{<:Real, 3}}()
+    output_error = zeros(Float64, time, net.net_shape[end])
+    hidden_error = zeros(Float64, time, net.net_shape[end-1])
 
-    for i in 1:n_layers
-        history[i] = zeros(time, net.net_shape[i])
-        output[i] = falses(time, net.net_shape[i])
-        if i != n_layers
-            weights[i] = zeros(time, net.net_shape[i], net.net_shape[i+1])
-        end
-    end
+    # for i in 1:n_layers
+    #     # history[i] = zeros(time, net.net_shape[i])
+    #     # output[i] = falses(time, net.net_shape[i])
+    #     # if i != n_layers
+    #     #     weights[i] = zeros(time, net.net_shape[i], net.net_shape[i+1])
+    #     # end
+    # end
 
     for i in 1:time
         update!(net)
-        update_weights!(net, desired)
-        for j in 1:n_layers
-            history[j][i,:] = potentials[j]
-            output[j][i,:] = spikes[j]
-            if j != n_layers
-                weights[j][i,:,:] = connections[(j, j+1)]
-            end
-        end
+        (output_error[i,:], hidden_error[i,:]) = update_weights!(net)
+        # for j in 1:n_layers
+        #     history[j][i,:] = potentials[j]
+        #     output[j][i,:] = spikes[j]
+        #     if j != n_layers
+        #         weights[j][i,:,:] = connections[(j, j+1)]
+        #     end
+        # end
     end
 
-    return (history, output, weights)
+    return (output_error, hidden_error)
 end
 
 function reset!(net::Network)
@@ -206,10 +230,10 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     for i in 1:n_x
         #set the input firing rate to the example
         set_input(net, x[i,:])
-        #is there a spike in the desired spike train?
-
-        #train the network with the desired firing rate
-        (h,o,w) = train!(net, time_per_example, y[i,:])
+        #set the teacher rate to the example
+        set_teacher(net, y[i,:])
+        #let the network learn with the update rule
+        train!(net, time_per_example)
     end
 
 end
