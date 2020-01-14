@@ -18,7 +18,8 @@ export Network,
     get_weights,
     set_weights
 
-import Statistics.mean
+import Statistics.mean,
+    Random.randperm
 
 mutable struct Network
     spikes::Dict{Int, Array{Bool,2}}
@@ -231,12 +232,13 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
 
     time_per_example = floor(Int, time/n_x)
     error = zeros(Float64, n_x)
+    shuffle_inds = randperm(n_x)
 
     for i in 1:n_x
         #set the input firing rate to the example
-        set_input(net, x[i,:])
+        set_input(net, x[shuffle_inds[i],:])
         #set the teacher rate to the example
-        set_teacher(net, y[i,:])
+        set_teacher(net, y[shuffle_inds[i],:])
         #let the network learn with the update rule
         start_i = (i-1) * time_per_example + 1
         stop_i = (i) * time_per_example
