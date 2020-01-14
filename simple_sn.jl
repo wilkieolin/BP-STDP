@@ -1,7 +1,7 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!, train!, reset!, epoch, test, full_test, train_loop, MSE
+export Network, update!, update_weights!, run!, train!, reset!, epoch, test, full_test, set_input, train_loop, MSE
 import Statistics.mean
 
 mutable struct Network
@@ -83,6 +83,15 @@ function update!(net::Network)
     end
 
     net.step += 1
+end
+
+function set_input(net::Network, input_rates::Array{<:Real,1})
+    if shape(input_rates) != shape(net.potentials[1])
+        error("Shape of input rates must match network input layer.")
+    end
+
+    net.input_rates = input_rates
+    reset!(net)
 end
 
 function update_weights!(net::Network, desired::Array{<:Real,1})
@@ -196,8 +205,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     time_per_example = floor(Int, time/n_x)
     for i in 1:n_x
         #set the input firing rate to the example
-        net.input_rates = x[i,:]
-        reset!(net)
+        set_input(net, x[i,:])
         #train the network with the desired firing rate
         (h,o,w) = train!(net, time_per_example, y[i,:])
     end
@@ -217,8 +225,7 @@ function full_test(net::Network, x::Array{<:Real,2}, time::Int)
 
     for i in 1:n_x
         #see how the network responds to the example stimulus
-        net.input_rates = x[i,:]
-        reset!(net)
+        set_input(net, x[i,:])
         (v,s) = run!(net, time_per_example)
         #get the output firing rate
         append!(spikes, s)
@@ -240,8 +247,7 @@ function test(net::Network, x::Array{<:Real,2}, time::Int)
 
     for i in 1:n_x
         #see how the network responds to the example stimulus
-        net.input_rates = x[i,:]
-        reset!(net)
+        set_input(net, x[i,:])
         (v,s) = run!(net, time_per_example)
         #get the output firing rate
         rates[i,:] = vec(sum(s[net.n_layers], dims=1) ./ time_per_example)
