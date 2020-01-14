@@ -1,7 +1,8 @@
 module SNetwork
 
 using Distributions
-export Network, update!, update_weights!, run!, train!, epoch, test, full_test, train_loop, MSE
+export Network, update!, update_weights!, run!, train!, reset!, epoch, test, full_test, train_loop, MSE
+import Statistics.mean
 
 mutable struct Network
     spikes::Dict{Int, Array{Bool,2}}
@@ -64,7 +65,7 @@ function update!(net::Network)
     memtime() = mod1(net.step, net.memory)
     #calculate random spiking at the inputs
     spikes[1][:,1] = rand(net.net_shape[1]) .< net.input_rates
-    traces[1][:,memtime()] = spikes[1][:,1]
+    traces[1][:,memtime()] .= spikes[1][:,1]
 
     for i in 2:net.n_layers
         src = i - 1
@@ -75,12 +76,13 @@ function update!(net::Network)
         potentials[dst] .+= currents
         #did this cause spikes?
         spikes[dst] .= potentials[dst] .>= net.thresholds[dst]
-        net.step += 1
         #update the synaptic trace
-        traces[dst][:,memtime()] = spikes[dst]
+        traces[dst][:,memtime()] .= spikes[dst][:,1]
         #reset potential of spiking neurons to zero
         potentials[dst][spikes[dst]] .= net.reset
     end
+
+    net.step += 1
 end
 
 function update_weights!(net::Network, desired::Array{<:Real,1})
@@ -195,6 +197,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     for i in 1:n_x
         #set the input firing rate to the example
         net.input_rates = x[i,:]
+        reset!(net)
         #train the network with the desired firing rate
         (h,o,w) = train!(net, time_per_example, y[i,:])
     end
@@ -249,13 +252,15 @@ end
 
 MSE(x,y) = mean((y - x).^2)
 
-function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
+accuracy(x,y) = mean(getindex.(findmax(x, dims=2)[2],2) .== getindex.(findmax(y, dims=2)[2],2))
+
+function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, lossfn::Function, time::Int, cycles::Int)
     losses = zeros(cycles)
 
     for i in 1:cycles
         epoch(net, x, y, time)
         yhat = test(net, x, time)
-        losses[i] = MSE(yhat, y)
+        losses[i] = lossfn(yhat, y)
     end
 
     return losses
