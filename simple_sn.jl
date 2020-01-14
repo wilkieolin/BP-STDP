@@ -18,6 +18,8 @@ mutable struct Network
     reset::Real
     memory::Int
     step::Int
+    steps_per_second::Int
+    max_fr::Int
     learn_rate::Real
 end
 
@@ -53,7 +55,7 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
 
     return Network(spikes, traces, potentials, connections,
         net_shape, input_rates, n_layers,
-        ones(n_layers), 0.0, memory, 0, 0.0005)
+        ones(n_layers), 0.0, memory, 0, 1000, 250, 0.0005)
 end
 
 function update!(net::Network)
@@ -86,11 +88,11 @@ function update!(net::Network)
 end
 
 function set_input(net::Network, input_rates::Array{<:Real,1})
-    if shape(input_rates) != shape(net.potentials[1])
+    if size(input_rates,1) != net.net_shape[1]
         error("Shape of input rates must match network input layer.")
     end
 
-    net.input_rates = input_rates
+    net.input_rates = (input_rates * net.max_fr / net.steps_per_second)
     reset!(net)
 end
 
@@ -108,10 +110,8 @@ function update_weights!(net::Network, desired::Array{<:Real,1})
     spikes_in_traces(x::Int) = sum(traces[x], dims=2)
     active_in_traces(x::Int) = (spikes_in_traces(x) .> 1)
 
-
     error_output = desired .- active_in_traces(3)
     error_hidden = connections[(2,3)] * error_output .* active_in_traces(2)
-
 
     deltas_23 = spikes_in_traces(2) * error_output' .* lr
     deltas_12 = spikes_in_traces(1) * error_hidden' .* lr
@@ -206,6 +206,8 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     for i in 1:n_x
         #set the input firing rate to the example
         set_input(net, x[i,:])
+        #is there a spike in the desired spike train?
+
         #train the network with the desired firing rate
         (h,o,w) = train!(net, time_per_example, y[i,:])
     end
