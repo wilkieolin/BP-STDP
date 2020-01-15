@@ -16,7 +16,9 @@ export Network,
     MSE,
     accuracy,
     get_weights,
-    set_weights
+    set_weights,
+    train_batch,
+    train_k_fold
 
 import Statistics.mean,
     Random.randperm
@@ -223,13 +225,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
 
-    if s_x != net.net_shape[1]
-        error("Second dimension of examples must match input dimension of network")
-    elseif n_x != n_y
-        error("Each training example (x) must have a target firing rate (y)")
-    elseif s_y != net.net_shape[end]
-        error("Second dimension of target firing rate must match output dimension of network")
-    end
+    check_dims(x,y)
 
     time_per_example = floor(Int, time/n_x)
     err = zeros(Float64, n_x)
@@ -290,6 +286,16 @@ function test(net::Network, x::Array{<:Real,2}, time::Int)
     return rates
 end
 
+function check_dims(x::Array{<:Real,2}, y::Array{<:Real,2})
+    if s_x != net.net_shape[1]
+        error("Second dimension of examples must match input dimension of network")
+    elseif n_x != n_y
+        error("Each training example (x) must have a target firing rate (y)")
+    elseif s_y != net.net_shape[end]
+        error("Second dimension of target firing rate must match output dimension of network")
+    end
+end
+
 MSE(x,y) = mean((y - x).^2)
 
 function accuracy(x::Array{<:Real,2}, y::Array{<:Real,2})
@@ -307,26 +313,70 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
     return mse
 end
 
+function train_batch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int, batch_size::Int)
+    check_dims(x,y)
+
+    n_x = size(x,1)
+    if (mod(n_x, cycles) != 0)
+        error("Batch size must evenly divide number of samples.")
+
+
+    order = randperm(n_x)
+    iteration = 1
+    max_iters = n_x / batch_size
+    errs = zeros(Float64, cycles)
+
+    for i in 1:cycles
+        start_i = mod1(batch_size * (i - 1) + 1, max_iters)
+        stop_i = mod1(batch_size * i, max_iters)
+        errs[i] = epoch(net, x[order[start_i:stop_i]], y[order[start_i:stop_i]], time)
+        iteration += 1
+
+        if iteration == max_iters
+            order = randperm(n_x)
+            iteration += 1
+        end
+    end
+
+    return errs
+end
+
 function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
 
-    if s_x != net.net_shape[1]
-        error("Second dimension of examples must match input dimension of network")
-    elseif n_x != n_y
-        error("Each training example (x) must have a target firing rate (y)")
-    elseif s_y != net.net_shape[end]
-        error("Second dimension of target firing rate must match output dimension of network")
-    end
+    check_dims(x,y)
 
     rates = test(net, x, time)
     return accuracy(rates, y)
 
 end
 
-function k_fold_train(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, k::Int, time::Int, cycles::Int)
+function train_k_fold(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int, k::Int)
+    check_dims(x,y)
 
+    n_x = size(x,1)
+    if (mod(n_x, k) != 0)
+        error("Fold must evenly divide number of samples.")
 
+    order = randperm(n_x)
+    fold_size = n_x / k
+    errs = zeros(Float64, cycles)
+    acc = zeros(Float64, cycles)
+
+    for i in 1:cycles
+        fold = mod1(i, k)
+        #get the indices of the fold which are being used for cross-validation
+        test_ind_start = fold_size * (fold - 1) + 1
+        test_ind_stop = fold_size * fold
+        #get the indices of the other available samples
+        train_inds = mod1.(collect(test_ind_stop + 1, test_ind_stop + (k-1) - 1), n_x)
+
+        err[i] = epoch(net, x[train_inds], y[train_inds], time)
+        acc[i] = accuracy(net, x[test_ind_start:test_ind_stop], x[test_ind_start:test_ind_stop], time*5)
+    end
+
+    return (err, acc)
 end
 
 
@@ -351,6 +401,16 @@ function set_weights(net::Network, new_weights::Dict{Tuple{Int,Int}, Array{Float
     for key in keys(new_weights)
         net.connections[key] = new_weights[key]
     end
+end
+
+function to_categorical(x::Array{<:Int,1})
+    n_x = size(x,1)
+    n_y = length(unique(x))
+    categories = zeros(Float64, n_x, n_y)
+    for i in 1:n_x
+        categories[i,x[i]+1] = 1.0
+    end
+    return categories
 end
 
 
