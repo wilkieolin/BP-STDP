@@ -59,7 +59,6 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
     #setup the input layer
     n_inputs = net_shape[1]
     input_rates = zeros(Float64, n_inputs)
-    teacher_rates = zeros(Float64, n_inputs)
     potentials[1] = -1 .* ones(Float64, n_inputs, 1)
     spikes[1] = falses(n_inputs, 1)
     traces[1] = falses(n_inputs, memory)
@@ -75,7 +74,9 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
     end
 
     #set up the teacher signal
-    spikes[n_layers + 1] = falses(net_shape[end], 1)
+    n_outputs = net_shape[end]
+    teacher_rates = zeros(Float64, n_outputs)
+    spikes[n_layers + 1] = falses(n_outputs, 1)
 
     return Network(spikes, traces, potentials, connections,
         net_shape, input_rates, teacher_rates, n_layers,
@@ -129,7 +130,7 @@ function set_teacher(net::Network, teacher_rates::Array{<:Real,1})
         error("Shape of teacher rates must match network output layer.")
     end
     #scale teacher spike rates with respect to the maximum firing rate
-    net.teacher_rates = (teacher_rates * net.max_fr / net.steps_per_second)
+    net.teacher_rates .= (teacher_rates .* (net.max_fr / net.steps_per_second))
     reset!(net)
 end
 
@@ -291,7 +292,9 @@ end
 
 MSE(x,y) = mean((y - x).^2)
 
-accuracy(x,y) = mean(getindex.(findmax(x, dims=2)[2],2) .== getindex.(findmax(y, dims=2)[2],2))
+function accuracy(x::Array{<:Real,2}, y::Array{<:Real,2})
+    return mean(getindex.(findmax(x, dims=2)[2],2) .== getindex.(findmax(y, dims=2)[2],2))
+end
 
 function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
     mse = zeros(cycles)
@@ -304,7 +307,7 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
     return mse
 end
 
-function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int)
+function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
 
@@ -318,6 +321,11 @@ function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::In
 
     rates = test(net, x, time)
     return accuracy(rates, y)
+
+end
+
+function k_fold_train(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, k::Int, time::Int, cycles::Int)
+
 
 end
 
