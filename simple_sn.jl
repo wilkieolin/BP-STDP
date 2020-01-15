@@ -225,7 +225,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
 
-    check_dims(x,y)
+    check_dims(net, x, y)
 
     time_per_example = floor(Int, time/n_x)
     err = zeros(Float64, n_x)
@@ -237,7 +237,7 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
         #set the teacher rate to the example
         set_teacher(net, y[shuffle_inds[i],:])
         #let the network learn with the update rule
-        err[i] = mapreduce(sum, +, train!(net, time)) / time
+        err[i] = (mapreduce(sum, +, train!(net, time)) / time)^2
     end
 
     return err
@@ -286,7 +286,10 @@ function test(net::Network, x::Array{<:Real,2}, time::Int)
     return rates
 end
 
-function check_dims(x::Array{<:Real,2}, y::Array{<:Real,2})
+function check_dims(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2})
+    (n_x, s_x) = size(x)
+    (n_y, s_y) = size(y)
+
     if s_x != net.net_shape[1]
         error("Second dimension of examples must match input dimension of network")
     elseif n_x != n_y
@@ -314,22 +317,22 @@ function train_loop(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::
 end
 
 function train_batch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int, batch_size::Int)
-    check_dims(x,y)
+    check_dims(net, x, y)
 
     n_x = size(x,1)
     if (mod(n_x, cycles) != 0)
         error("Batch size must evenly divide number of samples.")
-
+    end
 
     order = randperm(n_x)
     iteration = 1
-    max_iters = n_x / batch_size
+    max_iters = Int(n_x / batch_size)
     errs = zeros(Float64, cycles)
 
     for i in 1:cycles
         start_i = mod1(batch_size * (i - 1) + 1, max_iters)
         stop_i = mod1(batch_size * i, max_iters)
-        errs[i] = epoch(net, x[order[start_i:stop_i]], y[order[start_i:stop_i]], time)
+        errs[i] = mean(epoch(net, x[order[start_i:stop_i],:], y[order[start_i:stop_i],:], time))
         iteration += 1
 
         if iteration == max_iters
@@ -345,7 +348,7 @@ function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::In
     (n_x, s_x) = size(x)
     (n_y, s_y) = size(y)
 
-    check_dims(x,y)
+    check_dims(net, x, y)
 
     rates = test(net, x, time)
     return accuracy(rates, y)
@@ -353,11 +356,12 @@ function accuracy(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::In
 end
 
 function train_k_fold(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int, cycles::Int, k::Int)
-    check_dims(x,y)
+    check_dims(net, x, y)
 
     n_x = size(x,1)
     if (mod(n_x, k) != 0)
         error("Fold must evenly divide number of samples.")
+    end
 
     order = randperm(n_x)
     fold_size = n_x / k
