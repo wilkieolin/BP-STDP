@@ -18,7 +18,8 @@ export Network,
     get_weights,
     set_weights,
     train_batch,
-    train_k_fold
+    train_k_fold,
+    to_categorical
 
 import Statistics.mean,
     Random.randperm
@@ -137,36 +138,48 @@ function set_teacher(net::Network, teacher_rates::Array{<:Real,1})
 end
 
 function update_weights!(net::Network)
-    if length(net.net_shape) != 3
-        error("Algorithm currently only works for networks with 1 hidden layer (Input, Hidden, & Output)")
-    end
-
     spikes = net.spikes
     traces = net.traces
     potentials = net.potentials
     connections = net.connections
     lr = net.learn_rate
 
-    #only trigger if there's a spike in the teacher signal
-    if sum(spikes[4]) == 0
-        return (zeros(net.net_shape[3]), zeros(net.net_shape[2]))
-    end
+    n_layers = net.n_layers
+    hidden_layers = n_layers-1:-1:2
 
     spikes_in_traces(x::Int) = sum(traces[x], dims=2)
     active_in_traces(x::Int) = (spikes_in_traces(x) .> 0)
 
-    error_output = spikes[4] .- active_in_traces(3)
-    error_hidden = connections[(2,3)] * error_output .* active_in_traces(2)
+    #delta_w = Dict{Tuple{Int,Int}, Array{Float64,1}}()
+    error_by_layer = Array{Array{Float64,2},1}(undef, n_layers-1)
 
-    deltas_23 = spikes_in_traces(2) * error_output' .* lr
-    deltas_12 = spikes_in_traces(1) * error_hidden' .* lr
+    #only trigger if there's a spike in the teacher signal
+    if sum(spikes[4]) == 0
+        for i in 2:n_layers
+            error_by_layer[i-1] = zeros(Float64, net.net_shape[i], 1)
+        end
+    else
+        #calculate the error for the output layer
+        error_output = spikes[4] .- active_in_traces(3)
+        deltas_output = spikes_in_traces(2) * error_output' .* lr
+        connections[n_layers-1, n_layers] .+= deltas_output
 
-    connections[(2,3)] .+= deltas_23
-    connections[(1,2)] .+= deltas_12
+        #delta_w[n_layers-1, n_layers] = deltas_output
+        error_by_layer[n_layers-1] = error_output
+
+        for l in hidden_layers
+            error_hidden = connections[l, l+1] * error_output .* active_in_traces(l)
+            deltas = spikes_in_traces(l-1) * error_hidden' .* lr
+            connections[l-1, l] .+= deltas
+
+            #delta_w[l-1, l] = deltas
+            error_by_layer[l-1] = error_hidden
+        end
+    end
 
     net.train_step += 1
 
-    return (error_output, error_hidden)
+    return error_by_layer
 end
 
 function run!(net::Network, time::Int)
@@ -200,15 +213,15 @@ function train!(net::Network, time::Int)
     connections = net.connections
     n_layers = net.n_layers
 
-    output_error = zeros(Float64, time, net.net_shape[end])
-    hidden_error = zeros(Float64, time, net.net_shape[end-1])
+    total_errors = zeros(Float64, time, net.n_layers-1)
 
     for i in 1:time
         update!(net)
-        (output_error[i,:], hidden_error[i,:]) = update_weights!(net)
+        err = update_weights!(net)
+        total_errors[i,:] = sum.(err)
     end
 
-    return (output_error, hidden_error)
+    return total_errors
 end
 
 function reset!(net::Network)
@@ -237,7 +250,8 @@ function epoch(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time::Int)
         #set the teacher rate to the example
         set_teacher(net, y[shuffle_inds[i],:])
         #let the network learn with the update rule
-        err[i] = (mapreduce(sum, +, train!(net, time)) / time)^2
+        errors = train!(net, time)
+        err[i] = (sum(errors) / time)^2
     end
 
     return err
