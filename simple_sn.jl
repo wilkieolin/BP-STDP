@@ -364,8 +364,8 @@ function train_k_fold(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time
     end
 
     order = randperm(n_x)
-    fold_size = n_x / k
-    errs = zeros(Float64, cycles)
+    fold_size = Int(n_x / k)
+    err = zeros(Float64, cycles)
     acc = zeros(Float64, cycles)
 
     for i in 1:cycles
@@ -374,10 +374,10 @@ function train_k_fold(net::Network, x::Array{<:Real,2}, y::Array{<:Real,2}, time
         test_ind_start = fold_size * (fold - 1) + 1
         test_ind_stop = fold_size * fold
         #get the indices of the other available samples
-        train_inds = mod1.(collect(test_ind_stop + 1, test_ind_stop + (k-1) - 1), n_x)
+        train_inds = mod1.(collect(test_ind_stop + 1:test_ind_stop + (k-1) - 1), n_x)
 
-        err[i] = epoch(net, x[train_inds], y[train_inds], time)
-        acc[i] = accuracy(net, x[test_ind_start:test_ind_stop], x[test_ind_start:test_ind_stop], time*5)
+        err[i] = sum(epoch(net, x[train_inds, :], y[train_inds, :], time))
+        acc[i] = mean(accuracy(net, x[test_ind_start:test_ind_stop, :], y[test_ind_start:test_ind_stop, :], time*5))
     end
 
     return (err, acc)
