@@ -145,35 +145,34 @@ function update_weights!(net::Network)
     lr = net.learn_rate
 
     n_layers = net.n_layers
-    hidden_layers = n_layers-1:-1:2
 
     spikes_in_traces(x::Int) = sum(traces[x], dims=2)
     active_in_traces(x::Int) = (spikes_in_traces(x) .> 0)
 
-    #delta_w = Dict{Tuple{Int,Int}, Array{Float64,1}}()
     error_by_layer = Array{Array{Float64,2},1}(undef, n_layers-1)
+    delta_by_layer = Array{Array{Float64,2},1}(undef, n_layers-1)
 
     #only trigger if there's a spike in the teacher signal
-    if sum(spikes[4]) == 0
+    if sum(spikes[n_layers+1]) == 0
         for i in 2:n_layers
             error_by_layer[i-1] = zeros(Float64, net.net_shape[i], 1)
         end
     else
-        #calculate the error for the output layer
-        error_output = spikes[4] .- active_in_traces(3)
-        deltas_output = spikes_in_traces(2) * error_output' .* lr
-        connections[n_layers-1, n_layers] .+= deltas_output
+        for i in n_layers:-1:2
+            #is this the output layer?
+            if i == n_layers
+                #calculate its error from the teacher signal
+                error_by_layer[i-1] = spikes[i+1] .- active_in_traces(i)
+            else
+                #calculate error from the next layer
+                error_by_layer[i-1] = connections[i, i+1] * error_by_layer[i] .* active_in_traces(i)
+            end
+            delta_by_layer[i-1] = spikes_in_traces(i-1) * error_by_layer[i-1]' .* lr
+        end
 
-        #delta_w[n_layers-1, n_layers] = deltas_output
-        error_by_layer[n_layers-1] = error_output
-
-        for l in hidden_layers
-            error_hidden = connections[l, l+1] * error_output .* active_in_traces(l)
-            deltas = spikes_in_traces(l-1) * error_hidden' .* lr
-            connections[l-1, l] .+= deltas
-
-            #delta_w[l-1, l] = deltas
-            error_by_layer[l-1] = error_hidden
+        #update the weights with the calculated values
+        for i in 1:n_layers-1
+            connections[i, i+1] .+= delta_by_layer[i]
         end
     end
 
