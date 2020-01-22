@@ -37,6 +37,7 @@ mutable struct Network
 
     thresholds::Array{<:Real,1}
     reset::Real
+    soft_reset::Bool
     memory::Int
     step::Int
     steps_per_second::Int
@@ -83,7 +84,7 @@ function Network(net_shape::Array{<:Int,1}, mean::Real, std::Real, memory::Int)
 
     return Network(spikes, traces, potentials, connections,
         net_shape, input_rates, teacher_rates, n_layers,
-        ones(n_layers), 0.0, memory, 0, 1000, 250, 0.0005, 0)
+        ones(n_layers), 0.0, false, memory, 0, 1000, 250, 0.0005, 0)
 end
 
 function update!(net::Network)
@@ -109,8 +110,12 @@ function update!(net::Network)
         spikes[dst] .= potentials[dst] .>= net.thresholds[dst]
         #update the synaptic trace
         traces[dst][:,memtime()] .= spikes[dst][:,1]
-        #reset potential of spiking neurons to zero
-        potentials[dst][spikes[dst]] .= net.reset
+        if !net.soft_reset
+            #reset potential of spiking neurons to zero
+            potentials[dst][spikes[dst]] .= net.reset
+        else
+            potentials[dst][spikes[dst]] .-= net.thresholds[i]
+        end
     end
 
     #calculate the teacher signal for error propagation
